@@ -1,0 +1,71 @@
+---
+kind: pipeline
+name: build
+
+platform:
+  os: linux
+  arch: arm64
+
+globals:
+  version: 
+    - &fmd_version FMD_VERSION=v0.3.4
+    - &busybox_version BUSYBOX_VERSION=1.31.0-defconfig-multiarch-musl
+    - &busybox_binary BUSYBOX_BINARY=busybox-armv8l
+    - &docker_tags 0.3.4
+  repo: &repo badranadam/findmydeviceserver
+
+  settings: &docker_creds
+    username: 
+      from_secret: docker_username
+    password:
+      from_secret: docker_password
+
+  settings: &webhook_creds
+    username:
+      from_secret: webhook_username
+    password:
+      from_secret: webhook_password
+
+steps:
+- name: publish release image
+  image: plugins/docker
+  pull: if-not-exists
+  settings:
+    <<: *docker_creds
+    build_args:
+      - *fmd_version
+    repo: *repo
+    tags: 
+      - *docker_tags
+      - latest
+    purge: false
+    dry_run: false
+    force_tag: true
+  when:
+    branch:
+      - main
+
+- name: send push notification
+  image: plugins/webhook
+  settings:
+    <<: *webhook_creds
+    urls:
+      from_secret: webhook_url
+    content_type: application/json
+    template: |
+      {
+        "topic": "alerts_drone",
+        "message": "Build {{ build.status }}",
+        "title": "{{ repo.name }}",
+        "tags": ["computer"],
+        "priority": 3
+      }
+  trigger:
+    status:
+      - success
+      - failure
+
+trigger:
+  event:
+  - push
+
